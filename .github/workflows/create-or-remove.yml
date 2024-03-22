@@ -1,0 +1,102 @@
+name: "Terraform Infra"
+
+on:
+  workflow_dispatch:
+    inputs:
+      applicationState:
+        description: 'Create or Delete application'
+        required: true
+        default: 'none'
+        type: choice
+        options:
+        - create
+        - delete
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - v*
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-modules:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false
+
+      - name: Check out the repo
+        uses: actions/checkout@v3
+
+      ############################ Cloning Lambdas
+
+      - name: Cloning Lambdas
+        continue-on-error: false
+        run: |
+          git clone https://github.com/jeffersoncleyson/fiap-hackthon-2024-infra.git -b ${{ github.ref_name }}
+          git clone https://github.com/jeffersoncleyson/fiap-hackthon-2024-lambda-authorizer.git -b ${{ github.ref_name }} ./fiap-hackthon-2024-infra/lambdas/authorizer
+          git clone https://github.com/jeffersoncleyson/fiap-hackthon-2024-lambda-login.git -b ${{ github.ref_name }} ./fiap-hackthon-2024-infra/lambdas/login
+          git clone https://github.com/jeffersoncleyson/fiap-hackthon-2024-lambda-ponto.git -b ${{ github.ref_name }} ./fiap-hackthon-2024-infra/lambdas/ponto
+          git clone https://github.com/jeffersoncleyson/fiap-hackthon-2024-lambda-usuario.git -b ${{ github.ref_name }} ./fiap-hackthon-2024-infra/lambdas/usuario
+          git clone https://github.com/jeffersoncleyson/fiap-hackthon-2024-lambda-relatorio.git -b ${{ github.ref_name }} ./fiap-hackthon-2024-infra/lambdas/relatorio
+
+      
+      ############################ AWS SSO
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: "arn:aws:iam::${{ secrets.ACCOUNT_NUMBER }}:role/oidc-github-actions"
+          role-session-name: "oidc-github-actions"
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+
+      ############################ TERRAFORM INIT
+
+      - name: Terraform Init components
+        id: init
+        continue-on-error: false
+        run: |
+          cat << EOF > ./fiap-hackthon-2024-infra/terraform.tfvars.json
+          {
+            "region": "${{vars.AWS_DEFAULT_REGION}}",
+            "application_name": "${{vars.APP_NAME}}",
+            "environment": "${{vars.ENVIRONMENT}}",
+            "owner_team": "${{vars.OWNER_TEAM}}",
+            "token_jwt_secret": "${{secrets.TOKEN_JWT_SECRET}}",
+            "document_db_cluster_name": "${{vars.DOCUMENT_DB_CLUSTER_NAME}}",
+            "document_db_cluster_instance_class": "${{vars.DOCUMENT_DB_CLUSTER_INSTANCE_CLASS}}",
+            "document_db_cluster_db_name": "${{secrets.DOCUMENT_DB_CLUSTER_DB_NAME}}",
+            "document_db_cluster_username": "${{secrets.DOCUMENT_DB_CLUSTER_USERNAME}}",
+            "document_db_cluster_password": "${{secrets.DOCUMENT_DB_CLUSTER_PASSWORD}}",
+            "api_gateway_name": "${{vars.API_GATEWAY_NAME}}",
+            "api_gateway_stage_name": "${{vars.API_GATEWAY_STAGE_NAME}}",
+            "smtp_server": "${{vars.SMTP_SERVER}}",
+            "smtp_port": ${{vars.SMTP_PORT}},
+            "smtp_username": "${{secrets.SMTP_USERNAME}}",
+            "smtp_password": "${{secrets.SMTP_PASSWORD}}",
+            "lambda_layer_arn": "${{vars.LAMBDA_LAYER_ARN}}"
+          }
+          EOF
+          terraform -chdir=./fiap-hackthon-2024-infra init -reconfigure
+
+      ############################ TERRAFORM PLAN
+
+      - name: Terraform Plan components
+        id: plan
+        continue-on-error: false
+        run: terraform -chdir=./fiap-hackthon-2024-infra plan -target=module.usuario
+
+      ############################ TERRAFORM APPLY
+
+      - name: Terraform Apply components
+        id: apply
+        continue-on-error: false
+        run: terraform -chdir=./fiap-hackthon-2024-infra apply -auto-approve -target=module.usuario
