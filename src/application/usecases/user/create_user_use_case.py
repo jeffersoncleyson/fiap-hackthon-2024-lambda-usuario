@@ -25,7 +25,7 @@ class CreateUserUseCase:
             return ResponseFormatterUtils.get_response_message(
                 {
                     "error": "bad_request",
-                    "error_description": "missing request parameters",
+                    "error_description": "missing request parameters (see docs page)",
                 },
                 400,
             )
