@@ -49,7 +49,7 @@ class UpdateUserUseCase:
                 fields["role"] = role
 
             if password is not None:
-                fields["password"] = (EncryptUtils.encrypt(password),)
+                fields["password"] = EncryptUtils.encrypt(password)
 
             update = {"$set": fields}
 
